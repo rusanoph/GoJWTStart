@@ -1,4 +1,4 @@
-package main
+package apiserver
 
 import (
 	"fmt"
@@ -8,17 +8,33 @@ import (
 	"github.com/dgrijalva/jwt-go"
 )
 
-// This must be in env var
-var SECRET = []byte("super-sercret-auth-key")
-var api_key = "1234"
+type ApiServer struct {
+	config *Config
+	secret []byte
+}
 
-func CreateJWT() (string, error) {
+func NewApiServer(config *Config) *ApiServer {
+	return &ApiServer{
+		config: config,
+		secret: []byte(config.SecretKey),
+	}
+}
+
+func (as *ApiServer) Start() error {
+
+	http.Handle("/home", as.ValidateJWT(as.handleHome))
+	http.HandleFunc("/jwt", as.handleGetJwt)
+
+	return http.ListenAndServe(as.config.BindAddr, nil)
+}
+
+func (as *ApiServer) CreateJWT() (string, error) {
 	token := jwt.New(jwt.SigningMethodHS256)
 	claims := token.Claims.(jwt.MapClaims)
 
-	claims["exp"] = time.Now().Add(time.Second * 10).Unix()
+	claims["exp"] = time.Now().Add(time.Hour).Unix()
 
-	tokenStr, err := token.SignedString(SECRET)
+	tokenStr, err := token.SignedString(as.secret)
 	if err != nil {
 		fmt.Println(err.Error())
 		return "", err
@@ -27,7 +43,7 @@ func CreateJWT() (string, error) {
 	return tokenStr, nil
 }
 
-func ValidateJWT(next func(w http.ResponseWriter, r *http.Request)) http.Handler {
+func (as *ApiServer) ValidateJWT(next func(w http.ResponseWriter, r *http.Request)) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 
 		if r.Header["Token"] != nil {
@@ -36,7 +52,7 @@ func ValidateJWT(next func(w http.ResponseWriter, r *http.Request)) http.Handler
 					w.WriteHeader(http.StatusUnauthorized)
 					w.Write([]byte("not authorized wrong token format"))
 				}
-				return SECRET, nil
+				return as.secret, nil
 			})
 
 			if err != nil {
@@ -54,25 +70,21 @@ func ValidateJWT(next func(w http.ResponseWriter, r *http.Request)) http.Handler
 	})
 }
 
-func GetJwt(w http.ResponseWriter, r *http.Request) {
+func (as *ApiServer) handleGetJwt(w http.ResponseWriter, r *http.Request) {
 	if r.Header["Access"] != nil {
-		if r.Header["Access"][0] == api_key {
-			token, err := CreateJWT()
+		if r.Header["Access"][0] == as.config.ApiKey {
+			token, err := as.CreateJWT()
 			if err != nil {
 				return
 			}
 			fmt.Fprint(w, token)
 		}
+	} else {
+		w.WriteHeader(http.StatusBadRequest)
+		w.Write([]byte("no Access"))
 	}
 }
 
-func Home(w http.ResponseWriter, r *http.Request) {
+func (as *ApiServer) handleHome(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprintf(w, "super secret area")
-}
-
-func main() {
-	http.Handle("/api", ValidateJWT(Home))
-	http.HandleFunc("/jwt", GetJwt)
-
-	http.ListenAndServe(":8080", nil)
 }

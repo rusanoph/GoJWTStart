@@ -1,9 +1,9 @@
 .PHONY: build, run
 build:
-	go build main.go
+	go build ./cmd/gojwtstart
 
 run:
-	go run main.go
+	go run ./cmd/gojwtstart/main.go
 
 
 .DEFAULT_GOAL := build
